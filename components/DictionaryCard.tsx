@@ -29,7 +29,7 @@ const DictionaryCard: React.FC<DictionaryCardProps> = ({ entry, onDelete, global
     
     return parts.map((part, i) => 
       part.toLowerCase() === term.toLowerCase() ? 
-        <span key={i} className="text-indigo-300 font-semibold">{part}</span> : 
+        <span key={i} className="text-orange-300 font-semibold">{part}</span> : 
         part
     );
   };
@@ -37,7 +37,7 @@ const DictionaryCard: React.FC<DictionaryCardProps> = ({ entry, onDelete, global
   const blurClass = isBlurred ? "blur-sm select-none bg-slate-700/50 text-transparent rounded transition-all duration-300" : "transition-all duration-300";
 
   return (
-    <div className="group relative rounded-lg bg-slate-800/40 border border-slate-700/50 p-3 hover:bg-slate-800/80 hover:border-indigo-500/30 transition-all">
+    <div className="group relative rounded-lg bg-slate-800/40 border border-slate-700/50 p-3 hover:bg-slate-800/80 hover:border-orange-500/30 transition-all">
       
       {/* Top Section: Word Info + Actions */}
       <div className="flex justify-between items-start gap-4">
@@ -75,13 +75,13 @@ const DictionaryCard: React.FC<DictionaryCardProps> = ({ entry, onDelete, global
         <div className="flex gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
           <button 
             onClick={toggleBlur}
-            className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-slate-700 rounded transition-colors"
+            className="p-1.5 text-slate-500 hover:text-orange-400 hover:bg-slate-700 rounded transition-colors"
           >
             {isBlurred ? <EyeOff size={14} /> : <Eye size={14} />}
           </button>
           <button 
             onClick={handleSpeak}
-            className="p-1.5 text-slate-500 hover:text-indigo-400 hover:bg-slate-700 rounded transition-colors"
+            className="p-1.5 text-slate-500 hover:text-orange-400 hover:bg-slate-700 rounded transition-colors"
           >
             <Volume2 size={14} />
           </button>

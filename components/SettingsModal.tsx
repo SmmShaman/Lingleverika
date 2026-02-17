@@ -41,7 +41,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <select
                 value={settings.sourceLang}
                 onChange={(e) => onUpdateSettings({ ...settings, sourceLang: e.target.value })}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-orange-500 focus:outline-none"
               >
                 {LANGUAGES.map((lang) => (
                   <option key={`source-${lang.code}`} value={lang.code}>
@@ -55,7 +55,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <select
                 value={settings.targetLang}
                 onChange={(e) => onUpdateSettings({ ...settings, targetLang: e.target.value })}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none"
+                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-orange-500 focus:outline-none"
               >
                 {LANGUAGES.filter(l => l.code !== 'auto').map((lang) => (
                   <option key={`target-${lang.code}`} value={lang.code}>
@@ -71,7 +71,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <label className="block text-xs font-medium text-slate-400">Системний промпт</label>
               <button 
                 onClick={handleResetPrompt}
-                className="flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300"
+                className="flex items-center gap-1 text-[10px] text-orange-400 hover:text-orange-300"
               >
                 <RefreshCw size={10} /> Скинути
               </button>
@@ -79,7 +79,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             <textarea
               value={settings.systemPrompt}
               onChange={(e) => onUpdateSettings({ ...settings, systemPrompt: e.target.value })}
-              className="w-full h-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-indigo-500 focus:outline-none resize-none"
+              className="w-full h-32 rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-orange-500 focus:outline-none resize-none"
               placeholder="Налаштуйте, як ШІ повинен пояснювати слова..."
             />
             <p className="mt-1 text-xs text-slate-500">
@@ -91,7 +91,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="mt-6 flex justify-end">
           <button
             onClick={onClose}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 transition-colors"
           >
             Готово
           </button>

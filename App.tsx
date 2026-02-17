@@ -316,14 +316,14 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 selection:bg-indigo-500/30 font-sans pb-10">
+    <div className="min-h-screen bg-slate-950 text-slate-200 selection:bg-orange-500/30 font-sans pb-10">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md shadow-sm">
         <div className="mx-auto flex h-20 w-full items-center justify-between px-4 sm:px-6 gap-4">
           
           {/* Logo */}
           <div className="flex items-center gap-3 shrink-0 hidden md:flex">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 shadow-lg shadow-indigo-500/20 text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-600 shadow-lg shadow-orange-500/20 text-white">
               <Book size={18} />
             </div>
             <h1 className="text-lg font-bold tracking-tight text-white">
@@ -340,13 +340,13 @@ const App: React.FC = () => {
                   recordingState === RecordingState.RECORDING
                     ? 'bg-red-500 shadow-[0_0_20px_-5px_rgba(239,68,68,0.5)]'
                     : recordingState === RecordingState.PROCESSING
-                    ? 'bg-indigo-900 cursor-wait'
-                    : 'bg-orange-500 hover:bg-orange-400 shadow-lg shadow-orange-500/20'
+                    ? 'bg-orange-900 cursor-wait'
+                    : 'bg-orange-600 hover:bg-orange-500 shadow-lg shadow-orange-500/20'
                 }`}
                 title="Натисніть для запису (Alt+S)"
               >
                 {recordingState === RecordingState.PROCESSING ? (
-                  <Loader2 size={20} className="animate-spin text-indigo-200" />
+                  <Loader2 size={20} className="animate-spin text-orange-200" />
                 ) : (
                   <Mic 
                     size={20} 
@@ -374,7 +374,7 @@ const App: React.FC = () => {
                   value={textInput}
                   onChange={(e) => setTextInput(e.target.value)}
                   placeholder={recordingState === RecordingState.RECORDING ? "Слухаю..." : "Введіть слово..."}
-                  className="w-full h-12 rounded-xl bg-slate-900 border border-slate-700 pl-4 pr-32 text-lg font-bold text-yellow-400 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/20 transition-all"
+                  className="w-full h-12 rounded-xl bg-slate-900 border border-slate-700 pl-4 pr-32 text-lg font-bold text-yellow-400 placeholder-slate-600 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500/20 transition-all"
                   disabled={recordingState === RecordingState.PROCESSING}
                 />
                 
@@ -396,24 +396,24 @@ const App: React.FC = () => {
                recordingState === RecordingState.RECORDING
                  ? 'bg-red-950/50 border-red-500/50'
                  : recordingState === RecordingState.PROCESSING
-                 ? 'bg-indigo-950/50 border-indigo-500/50'
+                 ? 'bg-orange-950/50 border-orange-500/50'
                  : 'bg-slate-900 border-slate-800'
              }`}>
                 <span className="relative flex h-2 w-2">
                   <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                     recordingState === RecordingState.RECORDING ? 'bg-red-400'
-                    : recordingState === RecordingState.PROCESSING ? 'bg-indigo-400'
+                    : recordingState === RecordingState.PROCESSING ? 'bg-orange-400'
                     : 'bg-emerald-400'
                   }`}></span>
                   <span className={`relative inline-flex rounded-full h-2 w-2 ${
                     recordingState === RecordingState.RECORDING ? 'bg-red-500'
-                    : recordingState === RecordingState.PROCESSING ? 'bg-indigo-500'
+                    : recordingState === RecordingState.PROCESSING ? 'bg-orange-500'
                     : 'bg-emerald-500'
                   }`}></span>
                 </span>
                 <span className={`text-xs font-medium ${
                   recordingState === RecordingState.RECORDING ? 'text-red-400'
-                  : recordingState === RecordingState.PROCESSING ? 'text-indigo-400'
+                  : recordingState === RecordingState.PROCESSING ? 'text-orange-400'
                   : 'text-slate-500'
                 }`}>
                   {recordingState === RecordingState.RECORDING ? 'Мікрофон'
@@ -446,7 +446,7 @@ const App: React.FC = () => {
                     onClick={() => setIsGlobalBlur(!isGlobalBlur)}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                       isGlobalBlur 
-                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
+                        ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' 
                         : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                     }`}
                   >

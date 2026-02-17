@@ -24,7 +24,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete }) => {
     <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 font-sans text-slate-200">
       <div className="w-full max-w-md space-y-8 rounded-2xl bg-slate-900/50 p-8 shadow-2xl border border-slate-800 backdrop-blur-xl">
         <div className="text-center space-y-2">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-600/20 text-indigo-400 mb-6">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-600/20 text-orange-400 mb-6">
             <Globe size={32} />
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-white">
@@ -44,7 +44,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete }) => {
               <select
                 value={sourceLang}
                 onChange={(e) => setSourceLang(e.target.value)}
-                className="w-full appearance-none rounded-xl bg-slate-800 border border-slate-700 px-4 py-3 text-base text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none transition-all"
+                className="w-full appearance-none rounded-xl bg-slate-800 border border-slate-700 px-4 py-3 text-base text-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none transition-all"
               >
                 {LANGUAGES.map((lang) => (
                   <option key={`source-${lang.code}`} value={lang.code}>
@@ -68,7 +68,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete }) => {
               <select
                 value={targetLang}
                 onChange={(e) => setTargetLang(e.target.value)}
-                className="w-full appearance-none rounded-xl bg-slate-800 border border-slate-700 px-4 py-3 text-base text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none transition-all"
+                className="w-full appearance-none rounded-xl bg-slate-800 border border-slate-700 px-4 py-3 text-base text-white focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none transition-all"
               >
                 {LANGUAGES.filter(l => l.code !== 'auto').map((lang) => (
                   <option key={`target-${lang.code}`} value={lang.code}>
@@ -81,7 +81,7 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete }) => {
 
           <button
             type="submit"
-            className="group w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-4 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-500 hover:scale-[1.02] transition-all duration-200"
+            className="group w-full flex items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 py-4 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:bg-orange-500 hover:scale-[1.02] transition-all duration-200"
           >
             Розпочати сесію
             <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
