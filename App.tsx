@@ -341,7 +341,7 @@ const App: React.FC = () => {
                     ? 'bg-red-500 shadow-[0_0_20px_-5px_rgba(239,68,68,0.5)]'
                     : recordingState === RecordingState.PROCESSING
                     ? 'bg-indigo-900 cursor-wait'
-                    : 'bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-500/20'
+                    : 'bg-orange-500 hover:bg-orange-400 shadow-lg shadow-orange-500/20'
                 }`}
                 title="Натисніть для запису (Alt+S)"
               >
