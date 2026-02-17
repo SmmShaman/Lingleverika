@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Book, Settings, Keyboard, Loader2, SendHorizontal, MoveRight, ExternalLink, Eye, EyeOff } from 'lucide-react';
+import { Mic, Book, Settings, Keyboard, Loader2, SendHorizontal, MoveRight, ExternalLink, Eye, EyeOff, MicOff } from 'lucide-react';
 import { WordEntry, AppSettings, RecordingState } from './types';
 import { DEFAULT_SETTINGS, LANGUAGES } from './constants';
 import { analyzeInput } from './services/geminiService';
 import DictionaryCard from './components/DictionaryCard';
 import SettingsModal from './components/SettingsModal';
 import SetupScreen from './components/SetupScreen';
+import MicIndicator from './components/MicIndicator';
 
 const App: React.FC = () => {
   // State
@@ -363,6 +364,9 @@ const App: React.FC = () => {
                 )}
               </button>
 
+             {/* Audio Level Indicator */}
+             <MicIndicator isRecording={recordingState === RecordingState.RECORDING} />
+
              {/* Input Field */}
              <form onSubmit={handleTextSubmit} className="relative w-full flex-1">
                 <input
@@ -388,10 +392,33 @@ const App: React.FC = () => {
 
           {/* Right Controls */}
           <div className="flex items-center gap-2 shrink-0">
-             <div className={`hidden sm:flex items-center gap-2 rounded-full border px-3 py-1.5 transition-colors ${recordingState === RecordingState.RECORDING ? 'bg-indigo-900/30 border-indigo-500/50' : 'bg-slate-900 border-slate-800'}`}>
+             <div className={`hidden sm:flex items-center gap-2 rounded-full border px-3 py-1.5 transition-colors ${
+               recordingState === RecordingState.RECORDING
+                 ? 'bg-red-950/50 border-red-500/50'
+                 : recordingState === RecordingState.PROCESSING
+                 ? 'bg-indigo-950/50 border-indigo-500/50'
+                 : 'bg-slate-900 border-slate-800'
+             }`}>
                 <span className="relative flex h-2 w-2">
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${recordingState === RecordingState.RECORDING ? 'bg-red-400' : 'bg-emerald-400'}`}></span>
-                  <span className={`relative inline-flex rounded-full h-2 w-2 ${recordingState === RecordingState.RECORDING ? 'bg-red-500' : 'bg-emerald-500'}`}></span>
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    recordingState === RecordingState.RECORDING ? 'bg-red-400'
+                    : recordingState === RecordingState.PROCESSING ? 'bg-indigo-400'
+                    : 'bg-emerald-400'
+                  }`}></span>
+                  <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                    recordingState === RecordingState.RECORDING ? 'bg-red-500'
+                    : recordingState === RecordingState.PROCESSING ? 'bg-indigo-500'
+                    : 'bg-emerald-500'
+                  }`}></span>
+                </span>
+                <span className={`text-xs font-medium ${
+                  recordingState === RecordingState.RECORDING ? 'text-red-400'
+                  : recordingState === RecordingState.PROCESSING ? 'text-indigo-400'
+                  : 'text-slate-500'
+                }`}>
+                  {recordingState === RecordingState.RECORDING ? 'Мікрофон'
+                   : recordingState === RecordingState.PROCESSING ? 'Обробка...'
+                   : 'Готово'}
                 </span>
              </div>
             <button
