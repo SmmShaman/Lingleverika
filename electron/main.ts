@@ -13,14 +13,19 @@ const modelPath = isDev
 
 try {
   whisper = require('@kutalia/whisper-node-addon');
+  console.log('[Whisper] Addon loaded successfully');
 } catch (e) {
-  console.error('Failed to load whisper-node-addon:', e);
+  console.error('[Whisper] Failed to load addon:', e);
 }
+
+console.log('[Whisper] Model path:', modelPath);
+console.log('[Whisper] Model exists:', fs.existsSync(modelPath));
 
 // IPC: transcribe audio buffer (Float32 PCM → temp WAV → whisper)
 ipcMain.handle('whisper:transcribe', async (_event, pcmData: number[], sampleRate: number, language?: string) => {
-  if (!whisper) return { success: false, error: 'Whisper not loaded' };
-  if (!fs.existsSync(modelPath)) return { success: false, error: 'Model not found' };
+  console.log(`[Whisper] Received ${pcmData.length} samples, rate=${sampleRate}, lang=${language}`);
+  if (!whisper) { console.error('[Whisper] Not loaded'); return { success: false, error: 'Whisper not loaded' }; }
+  if (!fs.existsSync(modelPath)) { console.error('[Whisper] Model not found'); return { success: false, error: 'Model not found' }; }
 
   const tmpFile = path.join(os.tmpdir(), `nightowl_${Date.now()}.wav`);
 
@@ -37,12 +42,15 @@ ipcMain.handle('whisper:transcribe', async (_event, pcmData: number[], sampleRat
     const wavBuffer = Buffer.concat([wavHeader, Buffer.from(int16.buffer)]);
     fs.writeFileSync(tmpFile, wavBuffer);
 
+    console.log(`[Whisper] Transcribing ${tmpFile} (${wavBuffer.length} bytes)`);
     const result = await whisper.transcribe({
       fname_inp: tmpFile,
       model: modelPath,
       language: language && language !== 'auto' ? language : 'auto',
       use_gpu: false,
     });
+
+    console.log('[Whisper] Raw result:', JSON.stringify(result));
 
     // Clean up temp file
     try { fs.unlinkSync(tmpFile); } catch {}
@@ -55,6 +63,7 @@ ipcMain.handle('whisper:transcribe', async (_event, pcmData: number[], sampleRat
       text = result;
     }
 
+    console.log('[Whisper] Extracted text:', text);
     return { success: true, text: text.trim() };
   } catch (error: any) {
     try { fs.unlinkSync(tmpFile); } catch {}
