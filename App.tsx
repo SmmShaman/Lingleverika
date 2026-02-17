@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Book, Settings, Keyboard, Loader2, SendHorizontal, MoveRight, ExternalLink, Eye, EyeOff, MicOff } from 'lucide-react';
 import { WordEntry, AppSettings, RecordingState } from './types';
 import { DEFAULT_SETTINGS, LANGUAGES } from './constants';
-import { analyzeInput, transcribeAudio } from './services/geminiService';
+import { analyzeInput } from './services/geminiService';
 import DictionaryCard from './components/DictionaryCard';
 import SettingsModal from './components/SettingsModal';
 import SetupScreen from './components/SetupScreen';
@@ -20,12 +20,12 @@ const App: React.FC = () => {
   const [isGlobalBlur, setIsGlobalBlur] = useState(false);
   
   // Refs
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const silenceTimerRef = useRef<number>(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const pcmBufferRef = useRef<Float32Array[]>([]);
+  const scriptNodeRef = useRef<ScriptProcessorNode | null>(null);
   const lastLoudTimeRef = useRef<number>(0);
   const chunkStartTimeRef = useRef<number>(0);
   const lastActivityRef = useRef<number>(0);
@@ -85,38 +85,66 @@ const App: React.FC = () => {
 
   // Track whether actual speech was detected in this chunk
   const speechDetectedRef = useRef(false);
+  const transcribingRef = useRef(false);
 
-  // Send accumulated audio chunk to Gemini for transcription
-  const sendChunkToGemini = async () => {
-    if (audioChunksRef.current.length === 0) return;
+  // Send accumulated PCM audio to Whisper via IPC
+  const sendChunkToWhisper = async () => {
+    if (pcmBufferRef.current.length === 0) return;
     if (!speechDetectedRef.current) {
-      // No speech was detected — discard silent chunks
-      audioChunksRef.current = [];
+      pcmBufferRef.current = [];
       return;
     }
+    if (transcribingRef.current) return; // Don't overlap requests
 
-    const chunksToSend = [...audioChunksRef.current];
-    audioChunksRef.current = [];
+    const chunks = [...pcmBufferRef.current];
+    pcmBufferRef.current = [];
     speechDetectedRef.current = false;
+    transcribingRef.current = true;
 
-    const audioBlob = new Blob(chunksToSend, { type: 'audio/webm;codecs=opus' });
-    if (audioBlob.size < 10000) return;
+    // Merge PCM chunks into one Float32Array
+    const totalLength = chunks.reduce((acc, c) => acc + c.length, 0);
+    if (totalLength < 4000) { transcribingRef.current = false; return; } // Skip tiny clips
+
+    const merged = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
 
     try {
-      const text = await transcribeAudio(audioBlob, settings.sourceLang);
-      const trimmedText = text.trim();
-      if (!trimmedText) return;
+      const sampleRate = audioContextRef.current?.sampleRate || 16000;
+
+      // Use Whisper via Electron IPC if available, otherwise fall back to Gemini
+      let trimmedText = '';
+
+      if (window.electronAPI?.transcribeAudio) {
+        const result = await window.electronAPI.transcribeAudio(
+          Array.from(merged), sampleRate, settings.sourceLang
+        );
+        if (result.success && result.text) {
+          trimmedText = result.text.trim();
+        }
+      }
+
+      if (!trimmedText) { transcribingRef.current = false; return; }
+
+      // Filter out whisper hallucinations (common with silence/noise)
+      if (trimmedText.startsWith('[') || trimmedText.startsWith('(') || trimmedText.length < 2) {
+        transcribingRef.current = false;
+        return;
+      }
 
       resetShutdownTimer();
 
       const newText = textInputRef.current ? `${textInputRef.current} ${trimmedText}` : trimmedText;
       setTextInput(newText);
 
-      // Auto-submit logic
       const wordCount = newText.trim().split(/\s+/).filter((w: string) => w.length > 0).length;
 
       if (wordCount > 5) {
         handleProcessInput(newText);
+        transcribingRef.current = false;
         return;
       }
 
@@ -127,13 +155,14 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Transcription failed:", error);
     }
+    transcribingRef.current = false;
   };
 
   // Silence detection using AnalyserNode RMS
   const startSilenceDetection = () => {
-    const SPEECH_THRESHOLD = 35;        // RMS must exceed this to count as speech
-    const SILENCE_DURATION_MS = 1500;   // 1.5s silence after speech triggers send
-    const MAX_CHUNK_DURATION_MS = 8000; // Force send after 8s of speech
+    const SPEECH_THRESHOLD = 35;
+    const SILENCE_DURATION_MS = 1000;   // 1s silence triggers send (faster with local whisper)
+    const MAX_CHUNK_DURATION_MS = 6000; // Force send after 6s
 
     const checkSilence = () => {
       if (recordingStateRef.current !== RecordingState.RECORDING) return;
@@ -161,18 +190,16 @@ const App: React.FC = () => {
       const silenceDuration = now - lastLoudTimeRef.current;
       const chunkDuration = now - chunkStartTimeRef.current;
 
-      // Only send if speech was detected AND (silence after speech OR max duration)
       if (speechDetectedRef.current
           && (silenceDuration >= SILENCE_DURATION_MS || chunkDuration >= MAX_CHUNK_DURATION_MS)
-          && audioChunksRef.current.length > 0) {
-        sendChunkToGemini();
+          && pcmBufferRef.current.length > 0) {
+        sendChunkToWhisper();
         chunkStartTimeRef.current = Date.now();
         lastLoudTimeRef.current = Date.now();
       }
 
-      // Discard silent chunks periodically to prevent memory buildup
       if (!speechDetectedRef.current && chunkDuration >= MAX_CHUNK_DURATION_MS) {
-        audioChunksRef.current = [];
+        pcmBufferRef.current = [];
         chunkStartTimeRef.current = Date.now();
       }
 
@@ -182,35 +209,37 @@ const App: React.FC = () => {
     silenceTimerRef.current = requestAnimationFrame(checkSilence);
   };
 
-  // Audio Recording with MediaRecorder
+  // Audio Recording — capture raw PCM via ScriptProcessorNode
   const startRecording = async () => {
     try {
       setTextInput("");
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
+      });
       streamRef.current = stream;
 
-      const audioContext = new AudioContext();
+      const audioContext = new AudioContext({ sampleRate: 16000 });
       audioContextRef.current = audioContext;
       const source = audioContext.createMediaStreamSource(stream);
+
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 2048;
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
-      });
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+      // Capture raw PCM using ScriptProcessorNode
+      const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+      scriptNode.onaudioprocess = (event) => {
+        if (recordingStateRef.current !== RecordingState.RECORDING) return;
+        const input = event.inputBuffer.getChannelData(0);
+        pcmBufferRef.current.push(new Float32Array(input));
       };
+      source.connect(scriptNode);
+      scriptNode.connect(audioContext.destination);
+      scriptNodeRef.current = scriptNode;
 
-      mediaRecorder.start(1000);
+      pcmBufferRef.current = [];
       setRecordingState(RecordingState.RECORDING);
       resetShutdownTimer();
 
@@ -231,10 +260,10 @@ const App: React.FC = () => {
       silenceTimerRef.current = 0;
     }
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+    if (scriptNodeRef.current) {
+      scriptNodeRef.current.disconnect();
+      scriptNodeRef.current = null;
     }
-    mediaRecorderRef.current = null;
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -247,15 +276,14 @@ const App: React.FC = () => {
     }
     analyserRef.current = null;
 
-    // Send remaining chunks
-    if (audioChunksRef.current.length > 0) {
-      sendChunkToGemini();
+    if (pcmBufferRef.current.length > 0 && speechDetectedRef.current) {
+      sendChunkToWhisper();
     }
 
     if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
     if (shutdownIntervalRef.current) clearInterval(shutdownIntervalRef.current);
 
-    audioChunksRef.current = [];
+    pcmBufferRef.current = [];
     setRecordingState(RecordingState.IDLE);
   };
 

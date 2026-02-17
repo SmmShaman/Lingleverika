@@ -31,10 +31,17 @@ export enum RecordingState {
   ERROR = 'ERROR'
 }
 
-// Add TypeScript support for the Web Speech API
 declare global {
   interface Window {
     webkitSpeechRecognition: any;
     SpeechRecognition: any;
+    electronAPI?: {
+      isElectron: boolean;
+      transcribeAudio: (pcmData: number[], sampleRate: number, language?: string) => Promise<{
+        success: boolean;
+        text?: string;
+        error?: string;
+      }>;
+    };
   }
 }

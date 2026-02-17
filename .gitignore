@@ -12,6 +12,8 @@ dist
 dist-ssr
 dist-electron
 release
+models
+.env
 *.local
 
 # Editor directories and files

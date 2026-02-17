@@ -1,7 +1,89 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, session, ipcMain } from 'electron';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 
 const isDev = !app.isPackaged;
+
+// Whisper setup
+let whisper: any = null;
+const modelPath = isDev
+  ? path.join(__dirname, '..', 'models', 'ggml-tiny.bin')
+  : path.join(process.resourcesPath, 'models', 'ggml-tiny.bin');
+
+try {
+  whisper = require('@kutalia/whisper-node-addon');
+} catch (e) {
+  console.error('Failed to load whisper-node-addon:', e);
+}
+
+// IPC: transcribe audio buffer (Float32 PCM → temp WAV → whisper)
+ipcMain.handle('whisper:transcribe', async (_event, pcmData: number[], sampleRate: number, language?: string) => {
+  if (!whisper) return { success: false, error: 'Whisper not loaded' };
+  if (!fs.existsSync(modelPath)) return { success: false, error: 'Model not found' };
+
+  const tmpFile = path.join(os.tmpdir(), `nightowl_${Date.now()}.wav`);
+
+  try {
+    // Convert Float32 PCM to 16-bit WAV file
+    const float32 = new Float32Array(pcmData);
+    const int16 = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+
+    const wavHeader = createWavHeader(int16.length * 2, sampleRate, 1, 16);
+    const wavBuffer = Buffer.concat([wavHeader, Buffer.from(int16.buffer)]);
+    fs.writeFileSync(tmpFile, wavBuffer);
+
+    const result = await whisper.transcribe({
+      fname_inp: tmpFile,
+      model: modelPath,
+      language: language && language !== 'auto' ? language : 'auto',
+      use_gpu: false,
+    });
+
+    // Clean up temp file
+    try { fs.unlinkSync(tmpFile); } catch {}
+
+    // Extract text from result
+    let text = '';
+    if (Array.isArray(result)) {
+      text = result.map((seg: any) => seg[2] || seg.text || '').join(' ');
+    } else if (typeof result === 'string') {
+      text = result;
+    }
+
+    return { success: true, text: text.trim() };
+  } catch (error: any) {
+    try { fs.unlinkSync(tmpFile); } catch {}
+    console.error('Whisper transcription error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+function createWavHeader(dataSize: number, sampleRate: number, channels: number, bitsPerSample: number): Buffer {
+  const header = Buffer.alloc(44);
+  const byteRate = sampleRate * channels * (bitsPerSample / 8);
+  const blockAlign = channels * (bitsPerSample / 8);
+
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  return header;
+}
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -24,7 +106,6 @@ function createWindow(): void {
     mainWindow.show();
   });
 
-  // Auto-grant microphone permission (Electron has no Chrome-style permission bar)
   session.defaultSession.setPermissionRequestHandler(
     (_webContents, permission, callback) => {
       const allowed = ['media', 'microphone'];
