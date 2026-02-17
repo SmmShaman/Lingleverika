@@ -38,16 +38,16 @@ const VideoSimulator: React.FC<VideoSimulatorProps> = ({ onPlayStateChange }) =>
       {/* Controls Bar */}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-4 pt-10 opacity-0 transition-opacity group-hover:opacity-100">
         <div className="mb-2 h-1 w-full rounded-full bg-slate-700">
-          <div className="h-full w-1/3 rounded-full bg-indigo-500"></div>
+          <div className="h-full w-1/3 rounded-full bg-orange-500"></div>
         </div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button onClick={togglePlay} className="text-white hover:text-indigo-400">
+            <button onClick={togglePlay} className="text-white hover:text-orange-400">
               {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
             </button>
             <span className="text-xs font-medium text-slate-300">04:20 / 12:45</span>
           </div>
-          <button className="text-white hover:text-indigo-400">
+          <button className="text-white hover:text-orange-400">
             <Maximize2 size={20} />
           </button>
         </div>

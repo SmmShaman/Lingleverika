@@ -110,3 +110,35 @@ export const analyzeInput = async (
     throw error;
   }
 };
+
+export const transcribeAudio = async (
+  audioBlob: Blob,
+  language: string
+): Promise<string> => {
+  const base64Audio = await blobToBase64(audioBlob);
+  const langName = getLangName(language);
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: audioBlob.type || 'audio/webm',
+              data: base64Audio,
+            },
+          },
+          {
+            text: `Transcribe this audio exactly as spoken. The language is ${langName}. Return ONLY the transcribed text, nothing else. If the audio is empty or inaudible, return an empty string.`,
+          },
+        ],
+      },
+    });
+
+    return (response.text || '').trim();
+  } catch (error) {
+    console.error("Gemini transcription error:", error);
+    throw error;
+  }
+};

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Book, Settings, Keyboard, Loader2, SendHorizontal, MoveRight, ExternalLink, Eye, EyeOff, MicOff } from 'lucide-react';
 import { WordEntry, AppSettings, RecordingState } from './types';
 import { DEFAULT_SETTINGS, LANGUAGES } from './constants';
-import { analyzeInput } from './services/geminiService';
+import { analyzeInput, transcribeAudio } from './services/geminiService';
 import DictionaryCard from './components/DictionaryCard';
 import SettingsModal from './components/SettingsModal';
 import SetupScreen from './components/SetupScreen';
@@ -20,11 +20,18 @@ const App: React.FC = () => {
   const [isGlobalBlur, setIsGlobalBlur] = useState(false);
   
   // Refs
-  const recognitionRef = useRef<any>(null);
-  const isRestartingRef = useRef(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const silenceTimerRef = useRef<number>(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const lastLoudTimeRef = useRef<number>(0);
+  const chunkStartTimeRef = useRef<number>(0);
   const lastActivityRef = useRef<number>(0);
-  const recordingStateRef = useRef<RecordingState>(RecordingState.IDLE); // Fix stale closures
+  const recordingStateRef = useRef<RecordingState>(RecordingState.IDLE);
   const topOfListRef = useRef<HTMLDivElement>(null);
+  const textInputRef = useRef<string>("");
   
   // Timers for auto-logic
   const submitTimerRef = useRef<any>(null);
@@ -71,140 +78,184 @@ const App: React.FC = () => {
     localStorage.setItem('nightowl_settings', JSON.stringify(settings));
   }, [settings]);
 
-  // Initialize Speech Recognition
+  // Sync textInputRef with textInput state
   useEffect(() => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true; 
-      recognitionRef.current.interimResults = true; 
-    }
-  }, []);
+    textInputRef.current = textInput;
+  }, [textInput]);
 
-  // Update language when settings change
-  useEffect(() => {
-    if (recognitionRef.current && settings.sourceLang) {
-      recognitionRef.current.lang = settings.sourceLang === 'auto' ? 'en-US' : settings.sourceLang;
-    }
-  }, [settings.sourceLang]);
+  // Track whether actual speech was detected in this chunk
+  const speechDetectedRef = useRef(false);
 
-
-  // Audio Recording (Speech-to-Text) Logic
-  const startRecording = () => {
-    if (!recognitionRef.current) {
-      alert("Ваш браузер не підтримує розпізнавання мови.");
+  // Send accumulated audio chunk to Gemini for transcription
+  const sendChunkToGemini = async () => {
+    if (audioChunksRef.current.length === 0) return;
+    if (!speechDetectedRef.current) {
+      // No speech was detected — discard silent chunks
+      audioChunksRef.current = [];
       return;
     }
 
-    try {
-      setTextInput(""); 
-      isRestartingRef.current = false;
-      recognitionRef.current.start();
-      setRecordingState(RecordingState.RECORDING);
+    const chunksToSend = [...audioChunksRef.current];
+    audioChunksRef.current = [];
+    speechDetectedRef.current = false;
 
-      // Start the shutdown timer logic (60s)
+    const audioBlob = new Blob(chunksToSend, { type: 'audio/webm;codecs=opus' });
+    if (audioBlob.size < 10000) return;
+
+    try {
+      const text = await transcribeAudio(audioBlob, settings.sourceLang);
+      const trimmedText = text.trim();
+      if (!trimmedText) return;
+
       resetShutdownTimer();
 
-      recognitionRef.current.onresult = (event: any) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
+      const newText = textInputRef.current ? `${textInputRef.current} ${trimmedText}` : trimmedText;
+      setTextInput(newText);
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          } else {
-            interimTranscript += event.results[i][0].transcript;
-          }
-        }
-        
-        const currentText = finalTranscript || interimTranscript;
-        
-        // Update UI
-        setTextInput(currentText);
+      // Auto-submit logic
+      const wordCount = newText.trim().split(/\s+/).filter((w: string) => w.length > 0).length;
 
-        // Logic:
-        // 1. Reset the "Auto-Shutdown" timer because we have activity.
-        resetShutdownTimer();
-        
-        // 2. Clear any pending submit timer
-        if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
+      if (wordCount > 5) {
+        handleProcessInput(newText);
+        return;
+      }
 
-        const trimmedText = currentText.trim();
-        if (trimmedText.length > 0) {
-           // Rule: If > 5 words, submit immediately
-           const wordCount = trimmedText.split(/\s+/).filter(w => w.length > 0).length;
-           
-           if (wordCount > 5) {
-               handleProcessInput(currentText);
-               return;
-           }
-
-           // Rule: If pause > 3s, submit
-           submitTimerRef.current = setTimeout(() => {
-              handleProcessInput(currentText); 
-           }, 3000); 
-        }
-      };
-
-      recognitionRef.current.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        
-        // If restarting, ignore abort error
-        if (isRestartingRef.current && event.error === 'aborted') return;
-
-        if (event.error === 'not-allowed') {
-           alert("Доступ до мікрофону заборонено.");
-        }
-        
-        // Only stop on fatal errors, otherwise let onend handle restart logic
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-           stopRecording();
-        }
-      };
-
-      recognitionRef.current.onend = () => {
-         // Auto-restart logic:
-         // If the app thinks we should still be recording, restart the service.
-         // This handles cases where the browser stops listening due to silence or network hiccups.
-         if (recordingStateRef.current === RecordingState.RECORDING) {
-             
-             // Reset manual restart flag if it was used
-             if (isRestartingRef.current) {
-                 isRestartingRef.current = false;
-             }
-
-             try {
-                console.log("Auto-restarting speech recognition...");
-                recognitionRef.current.start();
-             } catch (e) {
-                console.error("Failed to auto-restart speech recognition", e);
-                setRecordingState(RecordingState.IDLE);
-             }
-             return;
-         }
-
-         // If we are not in RECORDING state (e.g., user clicked Stop), set IDLE.
-         setRecordingState(RecordingState.IDLE);
-      };
-
+      if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
+      submitTimerRef.current = setTimeout(() => {
+        handleProcessInput(newText);
+      }, 3000);
     } catch (error) {
-      console.error("Error starting speech recognition:", error);
+      console.error("Transcription failed:", error);
+    }
+  };
+
+  // Silence detection using AnalyserNode RMS
+  const startSilenceDetection = () => {
+    const SPEECH_THRESHOLD = 35;        // RMS must exceed this to count as speech
+    const SILENCE_DURATION_MS = 1500;   // 1.5s silence after speech triggers send
+    const MAX_CHUNK_DURATION_MS = 8000; // Force send after 8s of speech
+
+    const checkSilence = () => {
+      if (recordingStateRef.current !== RecordingState.RECORDING) return;
+      if (!analyserRef.current) return;
+
+      const analyser = analyserRef.current;
+      const dataArray = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(dataArray);
+
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const val = (dataArray[i] - 128) / 128;
+        sum += val * val;
+      }
+      const rms = Math.sqrt(sum / dataArray.length) * 128;
+
+      const now = Date.now();
+
+      if (rms > SPEECH_THRESHOLD) {
+        lastLoudTimeRef.current = now;
+        speechDetectedRef.current = true;
+        resetShutdownTimer();
+      }
+
+      const silenceDuration = now - lastLoudTimeRef.current;
+      const chunkDuration = now - chunkStartTimeRef.current;
+
+      // Only send if speech was detected AND (silence after speech OR max duration)
+      if (speechDetectedRef.current
+          && (silenceDuration >= SILENCE_DURATION_MS || chunkDuration >= MAX_CHUNK_DURATION_MS)
+          && audioChunksRef.current.length > 0) {
+        sendChunkToGemini();
+        chunkStartTimeRef.current = Date.now();
+        lastLoudTimeRef.current = Date.now();
+      }
+
+      // Discard silent chunks periodically to prevent memory buildup
+      if (!speechDetectedRef.current && chunkDuration >= MAX_CHUNK_DURATION_MS) {
+        audioChunksRef.current = [];
+        chunkStartTimeRef.current = Date.now();
+      }
+
+      silenceTimerRef.current = requestAnimationFrame(checkSilence);
+    };
+
+    silenceTimerRef.current = requestAnimationFrame(checkSilence);
+  };
+
+  // Audio Recording with MediaRecorder
+  const startRecording = async () => {
+    try {
+      setTextInput("");
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus',
+      });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.start(1000);
+      setRecordingState(RecordingState.RECORDING);
+      resetShutdownTimer();
+
+      lastLoudTimeRef.current = Date.now();
+      chunkStartTimeRef.current = Date.now();
+      startSilenceDetection();
+    } catch (error) {
+      console.error("Error starting recording:", error);
       setRecordingState(RecordingState.ERROR);
     }
   };
 
   const stopRecording = () => {
-    // Immediately update ref to prevent race condition in onend
     recordingStateRef.current = RecordingState.IDLE;
-    
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+
+    if (silenceTimerRef.current) {
+      cancelAnimationFrame(silenceTimerRef.current);
+      silenceTimerRef.current = 0;
     }
-      
-    // Clear timers
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+
+    // Send remaining chunks
+    if (audioChunksRef.current.length > 0) {
+      sendChunkToGemini();
+    }
+
     if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
     if (shutdownIntervalRef.current) clearInterval(shutdownIntervalRef.current);
 
+    audioChunksRef.current = [];
     setRecordingState(RecordingState.IDLE);
   };
 
@@ -260,29 +311,18 @@ const App: React.FC = () => {
   const handleProcessInput = async (input: Blob | string) => {
     if (typeof input === 'string' && !input.trim()) return;
 
-    // Reset the shutdown timer to 60s immediately upon submission
     if (recordingStateRef.current === RecordingState.RECORDING) {
       resetShutdownTimer();
     }
 
     try {
-      // 1. Send to API (Async)
       analyzeInput(input, settings).then(result => {
          setDictionary(prev => [result, ...prev]);
-         // Scroll to top to focus on new word
          window.scrollTo({ top: 0, behavior: 'smooth' });
       }).catch(err => console.error("Processing failed", err));
-      
-      // 2. Clear input immediately for UX
+
       if (typeof input === 'string') {
-        setTextInput(""); 
-        
-        // 3. Restart Recognition to clear buffer
-        if (recognitionRef.current && recordingStateRef.current === RecordingState.RECORDING) {
-            isRestartingRef.current = true;
-            recognitionRef.current.stop();
-            // onend will handle the actual start() call
-        }
+        setTextInput("");
       }
     } catch (error) {
       console.error("Processing failed", error);
@@ -316,14 +356,14 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 selection:bg-indigo-500/30 font-sans pb-10">
+    <div className="min-h-screen bg-slate-950 text-slate-200 selection:bg-orange-500/30 font-sans pb-10">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md shadow-sm">
         <div className="mx-auto flex h-20 w-full items-center justify-between px-4 sm:px-6 gap-4">
           
           {/* Logo */}
           <div className="flex items-center gap-3 shrink-0 hidden md:flex">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 shadow-lg shadow-indigo-500/20 text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-600 shadow-lg shadow-orange-500/20 text-white">
               <Book size={18} />
             </div>
             <h1 className="text-lg font-bold tracking-tight text-white">
@@ -340,13 +380,13 @@ const App: React.FC = () => {
                   recordingState === RecordingState.RECORDING
                     ? 'bg-red-500 shadow-[0_0_20px_-5px_rgba(239,68,68,0.5)]'
                     : recordingState === RecordingState.PROCESSING
-                    ? 'bg-indigo-900 cursor-wait'
-                    : 'bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-500/20'
+                    ? 'bg-orange-900 cursor-wait'
+                    : 'bg-orange-600 hover:bg-orange-500 shadow-lg shadow-orange-500/20'
                 }`}
                 title="Натисніть для запису (Alt+S)"
               >
                 {recordingState === RecordingState.PROCESSING ? (
-                  <Loader2 size={20} className="animate-spin text-indigo-200" />
+                  <Loader2 size={20} className="animate-spin text-orange-200" />
                 ) : (
                   <Mic 
                     size={20} 
@@ -374,7 +414,7 @@ const App: React.FC = () => {
                   value={textInput}
                   onChange={(e) => setTextInput(e.target.value)}
                   placeholder={recordingState === RecordingState.RECORDING ? "Слухаю..." : "Введіть слово..."}
-                  className="w-full h-12 rounded-xl bg-slate-900 border border-slate-700 pl-4 pr-32 text-lg font-bold text-yellow-400 placeholder-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/20 transition-all"
+                  className="w-full h-12 rounded-xl bg-slate-900 border border-slate-700 pl-4 pr-32 text-lg font-bold text-yellow-400 placeholder-slate-600 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500/20 transition-all"
                   disabled={recordingState === RecordingState.PROCESSING}
                 />
                 
@@ -396,24 +436,24 @@ const App: React.FC = () => {
                recordingState === RecordingState.RECORDING
                  ? 'bg-red-950/50 border-red-500/50'
                  : recordingState === RecordingState.PROCESSING
-                 ? 'bg-indigo-950/50 border-indigo-500/50'
+                 ? 'bg-orange-950/50 border-orange-500/50'
                  : 'bg-slate-900 border-slate-800'
              }`}>
                 <span className="relative flex h-2 w-2">
                   <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                     recordingState === RecordingState.RECORDING ? 'bg-red-400'
-                    : recordingState === RecordingState.PROCESSING ? 'bg-indigo-400'
+                    : recordingState === RecordingState.PROCESSING ? 'bg-orange-400'
                     : 'bg-emerald-400'
                   }`}></span>
                   <span className={`relative inline-flex rounded-full h-2 w-2 ${
                     recordingState === RecordingState.RECORDING ? 'bg-red-500'
-                    : recordingState === RecordingState.PROCESSING ? 'bg-indigo-500'
+                    : recordingState === RecordingState.PROCESSING ? 'bg-orange-500'
                     : 'bg-emerald-500'
                   }`}></span>
                 </span>
                 <span className={`text-xs font-medium ${
                   recordingState === RecordingState.RECORDING ? 'text-red-400'
-                  : recordingState === RecordingState.PROCESSING ? 'text-indigo-400'
+                  : recordingState === RecordingState.PROCESSING ? 'text-orange-400'
                   : 'text-slate-500'
                 }`}>
                   {recordingState === RecordingState.RECORDING ? 'Мікрофон'
@@ -446,7 +486,7 @@ const App: React.FC = () => {
                     onClick={() => setIsGlobalBlur(!isGlobalBlur)}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                       isGlobalBlur 
-                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
+                        ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' 
                         : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                     }`}
                   >
