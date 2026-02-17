@@ -83,15 +83,24 @@ const App: React.FC = () => {
     textInputRef.current = textInput;
   }, [textInput]);
 
+  // Track whether actual speech was detected in this chunk
+  const speechDetectedRef = useRef(false);
+
   // Send accumulated audio chunk to Gemini for transcription
   const sendChunkToGemini = async () => {
     if (audioChunksRef.current.length === 0) return;
+    if (!speechDetectedRef.current) {
+      // No speech was detected — discard silent chunks
+      audioChunksRef.current = [];
+      return;
+    }
 
     const chunksToSend = [...audioChunksRef.current];
     audioChunksRef.current = [];
+    speechDetectedRef.current = false;
 
     const audioBlob = new Blob(chunksToSend, { type: 'audio/webm;codecs=opus' });
-    if (audioBlob.size < 5000) return;
+    if (audioBlob.size < 10000) return;
 
     try {
       const text = await transcribeAudio(audioBlob, settings.sourceLang);
@@ -122,9 +131,9 @@ const App: React.FC = () => {
 
   // Silence detection using AnalyserNode RMS
   const startSilenceDetection = () => {
-    const SILENCE_THRESHOLD = 15;
-    const SILENCE_DURATION_MS = 3000;
-    const MAX_CHUNK_DURATION_MS = 10000;
+    const SPEECH_THRESHOLD = 35;        // RMS must exceed this to count as speech
+    const SILENCE_DURATION_MS = 1500;   // 1.5s silence after speech triggers send
+    const MAX_CHUNK_DURATION_MS = 8000; // Force send after 8s of speech
 
     const checkSilence = () => {
       if (recordingStateRef.current !== RecordingState.RECORDING) return;
@@ -143,19 +152,28 @@ const App: React.FC = () => {
 
       const now = Date.now();
 
-      if (rms > SILENCE_THRESHOLD) {
+      if (rms > SPEECH_THRESHOLD) {
         lastLoudTimeRef.current = now;
+        speechDetectedRef.current = true;
         resetShutdownTimer();
       }
 
       const silenceDuration = now - lastLoudTimeRef.current;
       const chunkDuration = now - chunkStartTimeRef.current;
 
-      if ((silenceDuration >= SILENCE_DURATION_MS || chunkDuration >= MAX_CHUNK_DURATION_MS)
+      // Only send if speech was detected AND (silence after speech OR max duration)
+      if (speechDetectedRef.current
+          && (silenceDuration >= SILENCE_DURATION_MS || chunkDuration >= MAX_CHUNK_DURATION_MS)
           && audioChunksRef.current.length > 0) {
         sendChunkToGemini();
         chunkStartTimeRef.current = Date.now();
         lastLoudTimeRef.current = Date.now();
+      }
+
+      // Discard silent chunks periodically to prevent memory buildup
+      if (!speechDetectedRef.current && chunkDuration >= MAX_CHUNK_DURATION_MS) {
+        audioChunksRef.current = [];
+        chunkStartTimeRef.current = Date.now();
       }
 
       silenceTimerRef.current = requestAnimationFrame(checkSilence);
